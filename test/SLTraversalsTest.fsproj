@@ -6,6 +6,11 @@
 
   <ItemGroup>
     <None Include="Test01.fsx" />
+    <None Include="Test02.fsx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\SLTraversals.fsproj" />
   </ItemGroup>
 
 </Project>
