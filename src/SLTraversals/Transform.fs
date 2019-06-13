@@ -1,0 +1,103 @@
+﻿// Copyright (c) Stephen Tetley 2019
+// License: BSD 3 Clause
+
+namespace SLTraversals
+
+module Transform =
+    
+    open SLTraversals.Internal.TraversalMonad
+
+
+    let transform (fn : 'ctx -> 'a -> Result<'ans, ErrMsg>) : GenTransform<'ans, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st src -> 
+            match fn ctx src with
+            | Error msg -> Error msg
+            | Ok ans -> Ok (ans, st)
+
+
+    let rewrite (fn : 'ctx -> 'ans -> Result<'ans, ErrMsg>) : GenRewrite<'ans, 'ctx, 'st> = 
+        transform fn
+
+    let successT () : GenTransform<unit, 'ctx, 'st, 'a> = mreturn ()
+
+    let contextT () : GenTransform<'ctx, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st _ -> Ok (ctx, st)
+
+    let exposeT () : GenTransform<'ctx * 'a, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st src -> Ok ((ctx, src), st)
+
+    let contextfreeT (fn : 'a -> Result<'ans, ErrMsg>) : GenTransform<'ans, 'ctx, 'st, 'a> = 
+        TraversalM <| fun _ st src -> 
+            match fn src with
+            | Error msg -> Error msg
+            | Ok ans -> Ok (ans, st)
+
+    
+
+    let liftContext (modify : 'ctx1 -> 'ctx2) 
+                    (trafo : GenTransform<'ans, 'ctx2, 'st, 'a>) : GenTransform<'ans, 'ctx1, 'st, 'a> = 
+        TraversalM <| fun ctx st src -> apply1 trafo (modify ctx) st src
+
+    let readerT (operate : 'a -> GenTransform<'ans, 'ctx, 'st, 'a>) : GenTransform<'ans, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st src -> 
+            let trafo = operate src in apply1 trafo ctx st src
+
+    let guardT () : GenTransform<unit, 'ctx, 'st, bool> = 
+        TraversalM <| fun ctx st src -> 
+            if src then Ok ((), st) else Error "guardT"
+
+    let ifT (test : GenTransform<bool, 'ctx, 'st, 'a>) 
+            (thenTrafo : GenTransform<'ans, 'ctx, 'st, 'a>)
+            (elseTrafo : GenTransform<'ans, 'ctx, 'st, 'a>) = 
+        traversal { 
+            match! test with
+            | true -> return! thenTrafo
+            | false -> return! elseTrafo
+        } 
+
+    let whenT (test : GenTransform<bool, 'ctx, 'st, 'a>) 
+              (successTrafo : GenTransform<'ans, 'ctx, 'st, 'a>) = 
+        ifT test successTrafo (traversalError "whenT")
+
+    let unlessT (test : GenTransform<bool, 'ctx, 'st, 'a>) 
+                (failureTrafo : GenTransform<'ans, 'ctx, 'st, 'a>) = 
+        ifT test (traversalError "whenT") failureTrafo
+
+    let andR (rewrites:GenRewrite<'a, 'ctx, 'st> list) : GenRewrite<'a, 'ctx, 'st> = 
+        TraversalM <| fun ctx stZero src -> 
+            let rec work ops st ans fk sk = 
+                match ops with
+                | [] -> sk st ans
+                | mf :: rest -> 
+                    match apply1 mf ctx st ans with
+                    | Error msg -> fk msg
+                    | Ok (ans1, st1) -> 
+                        work rest st1 ans1 fk sk
+            work rewrites stZero src (fun msg -> Error msg) (fun st ans -> Ok (ans, st))
+                
+    let orR (rewrites:GenRewrite<'a, 'ctx, 'st> list) : GenRewrite<'a, 'ctx, 'st> = 
+        TraversalM <| fun ctx stZero src -> 
+            let rec work ops st ans fk sk = 
+                match ops with
+                | [] -> fk "orR"
+                | mf :: rest -> 
+                    match apply1 mf ctx st ans with
+                    | Error msg -> work rest st ans fk sk
+                    | Ok (ans1, st1) -> sk st1 ans1
+            work rewrites stZero src (fun msg -> Error msg) (fun st ans -> Ok (ans, st))
+
+    let acceptWithFailR (test : 'a -> bool) (msg : ErrMsg) : GenRewrite<'a, 'ctx, 'st> = 
+        readerT (fun a -> if test a then idR () else traversalError msg)
+
+    let contextonlyT (fn : 'ctx -> Result<'ans, ErrMsg>) : GenTransform<'ans, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st _ -> 
+            match fn ctx with
+            | Error msg -> Error msg
+            | Ok ans -> Ok (ans, st)
+
+    let effectfreeT (fn : 'ctx -> 'a -> 'ans) : GenTransform<'ans, 'ctx, 'st, 'a> = 
+        TraversalM <| fun ctx st src-> 
+            Ok (fn ctx src, st)
+
+
+

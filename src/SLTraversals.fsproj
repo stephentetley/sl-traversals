@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <Compile Include="SLTraversals\Internal\TraversalMonad.fs" />
-    <Compile Include="SLTraversals\TraversalMonad.fs" />
+    <Compile Include="SLTraversals\Transform.fs" />
     <Compile Include="SLTraversals\TraversalMonad2.fs" />
     <Compile Include="SLTraversals\TraversalMonad3.fs" />
   </ItemGroup>

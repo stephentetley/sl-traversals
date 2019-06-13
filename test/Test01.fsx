@@ -3,8 +3,9 @@
 
 #r "netstandard"
 
-#load @"..\src\SLTraversals\TraversalMonad2.fs"
-open SLTraversals.TraversalMonad2
+#load @"..\src\SLTraversals\Internal\TraversalMonad.fs"
+#load @"..\src\SLTraversals\Transform.fs"
+open SLTraversals.Transform
 
 let test01 () = 
     runTraversal <| 
