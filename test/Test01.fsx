@@ -5,16 +5,22 @@
 
 #load @"..\src\SLTraversals\Internal\TraversalMonad.fs"
 #load @"..\src\SLTraversals\Transform.fs"
+open SLTraversals.Internal.TraversalMonad
 open SLTraversals.Transform
 
+type RoseTree<'a> = RoseTree of 'a * RoseTree<'a> list
+
+let tree1 : RoseTree<int> = RoseTree(1, [RoseTree(2,[]); RoseTree(3,[])])
+
+
 let test01 () = 
-    runTraversal <| 
+    runTraversal () () tree1 <| 
         traversal { 
             return 0
         }
 
 let test02 () : Result<int, ErrMsg> = 
-    runTraversal <| 
+    runTraversal () () tree1 <| 
         traversal { 
             return! traversalError "Bad"
         }
@@ -27,7 +33,7 @@ let test03 () : Result<string, ErrMsg> =
             
             return (a + b).ToString()
         }
-    runTraversal step
+    runTraversal () () tree1 step
 
 
 let test04 () : Result<string, ErrMsg> = 
@@ -35,11 +41,11 @@ let test04 () : Result<string, ErrMsg> =
         traversal { 
             return! traversalError "Bad"
         }
-    runTraversal <| mcatch failStep (fun msg -> mreturn (msg + "!!!"))
+    runTraversal () () tree1 <| mcatch failStep (fun msg -> mreturn (msg + "!!!"))
 
 let test05 () : Result<string, ErrMsg> = 
     let failStep = 
         traversal { 
             return! traversalError "Bad"
         }
-    runTraversal <| mplus failStep (mreturn "Good")
+    runTraversal () () tree1 <| mplus failStep (mreturn "Good")

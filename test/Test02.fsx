@@ -6,6 +6,8 @@
 #load @"..\src\SLTraversals\TraversalMonad3.fs"
 open SLTraversals.TraversalMonad3
 
+/// TODO - TraversalMonad3 has been superceded
+
 let test01 () = 
     runTraversal <| 
         traversal { 
