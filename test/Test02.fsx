@@ -3,44 +3,20 @@
 
 #r "netstandard"
 
-#load @"..\src\SLTraversals\TraversalMonad3.fs"
-open SLTraversals.TraversalMonad3
-
-/// TODO - TraversalMonad3 has been superceded
-
-let test01 () = 
-    runTraversal <| 
-        traversal { 
-            return 0
-        }
-
-let test02 () : Result<int, ErrMsg> = 
-    runTraversal 12 <| 
-        traversal { 
-            return! traversalError "Bad"
-        }
-
-let test03 () : Result<string, ErrMsg> = 
-    let step = 
-        traversal { 
-            let! a = mreturn 2
-            let! b = mreturn 4
-            
-            return (a + b).ToString()
-        }
-    runTraversal () step
+#load @"..\src\SLTraversals\Internal\TraversalMonad.fs"
+#load @"..\src\SLTraversals\Transform.fs"
+open SLTraversals.Internal.TraversalMonad
+open SLTraversals.Transform
 
 
-let test04 () : Result<string, ErrMsg> = 
-    let failStep = 
-        traversal { 
-            return! traversalError "Bad"
-        }
-    runTraversal "input" <| mcatch failStep (fun msg -> mreturn (msg + "!!!"))
+type RewriteDict<'a, 'ctx, 'st> = 
+    { AllRewrite : GenRewrite<'a, 'ctx, 'st>
+      AnyRewrite : GenRewrite<'a, 'ctx, 'st>
+      OneRewrite : GenRewrite<'a, 'ctx, 'st>
+    }
 
-let test05 () : Result<string, ErrMsg> = 
-    let failStep = 
-        traversal { 
-            return! traversalError "Bad"
-        }
-    runTraversal "input" <| mplus failStep (mreturn "Good")
+
+type RoseTree<'a> = RoseTree of 'a * RoseTree<'a> list
+
+let tree1 : RoseTree<int> = RoseTree(1, [RoseTree(2,[]); RoseTree(3,[])])
+
