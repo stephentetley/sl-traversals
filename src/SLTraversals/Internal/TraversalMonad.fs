@@ -6,10 +6,13 @@ namespace SLTraversals.Internal
 module TraversalMonad =
     
 
-    /// TODO - would be better with an exception so we could match on it
-    type ErrMsg = string
+    /// TODO - would be nicer with an exception so we could match on it
+    type TraversalError = System.Exception
 
-    type Answer<'ans, 'st> = Result<'ans * 'st, ErrMsg>
+    exception StrategyFailure of string
+
+
+    type Answer<'ans, 'st> = Result<'ans * 'st, TraversalError>
 
     type TraversalM<'ans, 'ctx, 'st, 'src> = 
         TraversalM of ('ctx -> 'st -> 'src -> Answer<'ans, 'st>)
@@ -21,7 +24,7 @@ module TraversalMonad =
         let (TraversalM f) = ma in f context state source
 
     let failM () : TraversalM<'ans, 'ctx, 'st, 'src> = 
-        TraversalM <| fun _ _ _ -> Error "failM"
+        TraversalM <| fun _ _ _ -> Error (StrategyFailure "failM")
 
     let mreturn (a : 'ans) : TraversalM<'ans, 'env, 'st, 'src> =
         TraversalM <| fun _ st _ -> Ok (a, st)
@@ -35,7 +38,7 @@ module TraversalMonad =
             | Ok (a, st1) -> apply1 (fn a) ctx st1 src
 
     let mzero () : TraversalM<'ans, 'ctx, 'st, 'src> = 
-        TraversalM <| fun _ _ _ -> Error "mzero"
+        TraversalM <| fun _ _ _ -> Error (StrategyFailure "mzero")
 
     let mplus (ma : TraversalM<'ans, 'ctx, 'st, 'src>) 
               (mb : TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = 
@@ -58,24 +61,53 @@ module TraversalMonad =
     let (traversal:TraversalBuilder) = new TraversalBuilder()
 
 
+    type ErrMsg = string
+
     let runTraversal (context : 'ctx) 
                      (initialState : 'st) 
                      (source : 'src) 
                      (ma : TraversalM<'ans, 'ctx, 'st, 'src>)  : Result<'ans, ErrMsg> = 
         match apply1 ma context initialState source with
-        | Error msg -> Error msg
+        | Error ex -> 
+            match ex with
+            | StrategyFailure(msg) -> Error (sprintf "StrategyFailure: %s" msg)
+            | _ -> Error (ex.Message)
         | Ok (ans, _ ) -> Ok ans
 
-    let traversalError (msg : string) : TraversalM<'ans, 'ctx, 'st, 'src> = 
-        TraversalM <| fun _ _ _ -> Error msg
+    let traversalError (ex : System.Exception) : TraversalM<'ans, 'ctx, 'st, 'src> = 
+        TraversalM <| fun _ _ _ -> Error ex
+
+    let strategyFailure (message : string) : TraversalM<'ans, 'ctx, 'st, 'src> = 
+        traversalError (StrategyFailure message)
 
 
     let mcatch (ma : TraversalM<'ans, 'ctx, 'st, 'src>) 
-               (handler : string -> TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = 
+               (handler : System.Exception -> TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = 
         TraversalM <| fun ctx st src -> 
             match apply1 ma ctx st src with
             | Error msg -> apply1 (handler msg) ctx st src
             | Ok res -> Ok res 
+
+
+    let fmapM (modify : 'a -> 'b)
+              (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'b, 'ctx, 'st, 'src> = 
+        TraversalM <| fun ctx st src -> 
+            match apply1 action ctx st src with
+            | Error msg -> Error msg
+            | Ok (ans, st1) -> Ok (modify ans, st1)
+
+    /// Operator for fmapM
+    let ( <<| ) (modify : 'a -> 'b)
+                (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'b, 'ctx, 'st, 'src> = 
+        fmapM modify action
+
+    /// Flipped fmapM
+    let ( |>> ) (action : TraversalM<'a, 'ctx, 'st, 'src>) 
+                (modify : 'a -> 'b) : TraversalM<'b, 'ctx, 'st, 'src> = 
+        fmapM modify action  
+
+    
+    /// If left action fails try 
 
 
     type GenTransform<'ans, 'ctx, 'st, 'src> = TraversalM<'ans, 'ctx, 'st, 'src>
@@ -85,7 +117,8 @@ module TraversalMonad =
     let idR () : GenRewrite<'ans, 'st, 'env> = 
         TraversalM <| fun _ st src -> Ok (src, st)
 
-    let failT () : GenTransform<'ans, 'ctx, 'st, 'src> = traversalError "failT"
+    let failT () : GenTransform<'ans, 'ctx, 'st, 'src> = 
+        traversalError (StrategyFailure "failT")
 
     let ( <+ ) (t1 : GenTransform<'ans, 'ctx, 'st, 'src>) 
                (t2 : GenTransform<'ans, 'ctx, 'st, 'src>) : GenTransform<'ans, 'ctx, 'st, 'src> = 

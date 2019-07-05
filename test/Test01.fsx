@@ -22,7 +22,7 @@ let test01 () =
 let test02 () : Result<int, ErrMsg> = 
     runTraversal () () tree1 <| 
         traversal { 
-            return! traversalError "Bad"
+            return! strategyFailure "Bad"
         }
 
 let test03 () : Result<string, ErrMsg> = 
@@ -39,13 +39,13 @@ let test03 () : Result<string, ErrMsg> =
 let test04 () : Result<string, ErrMsg> = 
     let failStep = 
         traversal { 
-            return! traversalError "Bad"
+            return! strategyFailure "Bad"
         }
-    runTraversal () () tree1 <| mcatch failStep (fun msg -> mreturn (msg + "!!!"))
+    runTraversal () () tree1 <| mcatch failStep (fun excp -> mreturn (excp.Message + "!!!"))
 
 let test05 () : Result<string, ErrMsg> = 
     let failStep = 
         traversal { 
-            return! traversalError "Bad"
+            return! strategyFailure "Bad"
         }
     runTraversal () () tree1 <| mplus failStep (mreturn "Good")
