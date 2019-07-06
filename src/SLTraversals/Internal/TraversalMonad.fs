@@ -6,7 +6,7 @@ namespace SLTraversals.Internal
 module TraversalMonad =
     
 
-    /// TODO - would be nicer with an exception so we could match on it
+    
     type TraversalError = System.Exception
 
     exception StrategyFailure of string
@@ -15,9 +15,9 @@ module TraversalMonad =
     type Answer<'ans, 'st> = Result<'ans * 'st, TraversalError>
 
     type TraversalM<'ans, 'ctx, 'st, 'src> = 
-        TraversalM of ('ctx -> 'st -> 'src -> Answer<'ans, 'st>)
+        internal TraversalM of ('ctx -> 'st -> 'src -> Answer<'ans, 'st>)
 
-    let apply1 (ma : TraversalM<'ans, 'ctx, 'st, 'src>)
+    let internal apply1 (ma : TraversalM<'ans, 'ctx, 'st, 'src>)
                (context : 'ctx)
                (state : 'st) 
                (source : 'src) : Answer<'ans, 'st> = 
@@ -30,7 +30,7 @@ module TraversalMonad =
         TraversalM <| fun _ st _ -> Ok (a, st)
 
 
-    let bindM (ma : TraversalM<'ans1, 'st, 'env, 'src>)
+    let mbind (ma : TraversalM<'ans1, 'st, 'env, 'src>)
               (fn : 'ans1 -> TraversalM<'ans2, 'st, 'env, 'src>) : TraversalM<'ans2, 'st, 'env, 'src> =
         TraversalM <| fun ctx st src -> 
             match apply1 ma ctx st src with
@@ -47,16 +47,17 @@ module TraversalMonad =
             | Error _ -> apply1 mb ctx st src
             | Ok res -> Ok res
     
-    let inline private delayM (fn:unit -> TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = 
-        bindM (mreturn ()) fn 
+    let inline private mdelay (fn:unit -> TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = 
+        mbind (mreturn ()) fn 
 
 
     type TraversalBuilder() = 
         member self.Return x        = mreturn x
-        member self.Bind (p,f)      = bindM p f
+        member self.Bind (p,f)      = mbind p f
         member self.Zero ()         = mzero ()
         member self.Combine ma mb   = mplus ma mb
         member self.ReturnFrom(ma:TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> = ma
+        member self.Delay fn        = mdelay fn
         
     let (traversal:TraversalBuilder) = new TraversalBuilder()
 
@@ -89,7 +90,7 @@ module TraversalMonad =
             | Ok res -> Ok res 
 
 
-    let fmapM (modify : 'a -> 'b)
+    let mapM (modify : 'a -> 'b)
               (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'b, 'ctx, 'st, 'src> = 
         TraversalM <| fun ctx st src -> 
             match apply1 action ctx st src with
@@ -99,38 +100,48 @@ module TraversalMonad =
     /// Operator for fmapM
     let ( <<| ) (modify : 'a -> 'b)
                 (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'b, 'ctx, 'st, 'src> = 
-        fmapM modify action
+        mapM modify action
 
     /// Flipped fmapM
     let ( |>> ) (action : TraversalM<'a, 'ctx, 'st, 'src>) 
                 (modify : 'a -> 'b) : TraversalM<'b, 'ctx, 'st, 'src> = 
-        fmapM modify action  
+        mapM modify action  
+
+    let ( >>= ) (ma : TraversalM<'ans1, 'st, 'env, 'src>)
+                (fn : 'ans1 -> TraversalM<'ans2, 'st, 'env, 'src>) : TraversalM<'ans2, 'st, 'env, 'src> =
+        mbind ma fn
 
     
-    /// If left action fails try 
+    /// Operator for mplus (alternative choice)
+    let ( <|> ) (actionA : TraversalM<'ans, 'ctx, 'st, 'src>) 
+                (actionB : TraversalM<'ans, 'ctx, 'st, 'src>) : TraversalM<'ans, 'ctx, 'st, 'src> =  
+        mplus actionA actionB
 
 
-    type GenTransform<'ans, 'ctx, 'st, 'src> = TraversalM<'ans, 'ctx, 'st, 'src>
+    let mguard (condition : bool) : TraversalM<unit, 'ctx, 'st, 'src> = 
+        if condition then mreturn () else failM ()
 
-    type GenRewrite<'ans, 'ctx, 'st> = GenTransform<'ans, 'ctx, 'st, 'ans>
 
-    let idR () : GenRewrite<'ans, 'st, 'env> = 
-        TraversalM <| fun _ st src -> Ok (src, st)
+    let mwhen (condition : bool) (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'a, 'ctx, 'st, 'src> = 
+        if condition then action else failM ()
 
-    let failT () : GenTransform<'ans, 'ctx, 'st, 'src> = 
-        traversalError (StrategyFailure "failT")
+    let whenM (test : TraversalM<bool, 'ctx, 'st, 'src>) (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'a, 'ctx, 'st, 'src> = 
+        test >>= fun ans -> 
+        mwhen ans action
+    
+    let munless (condition : bool) (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'a, 'ctx, 'st, 'src> = 
+        if condition then failM () else action
 
-    let ( <+ ) (t1 : GenTransform<'ans, 'ctx, 'st, 'src>) 
-               (t2 : GenTransform<'ans, 'ctx, 'st, 'src>) : GenTransform<'ans, 'ctx, 'st, 'src> = 
-        mcatch t1 (fun _ -> t2)
+    let unlessM (test : TraversalM<bool, 'ctx, 'st, 'src>) (action : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'a, 'ctx, 'st, 'src> = 
+        test >>= fun ans -> 
+        munless ans action
 
-    let tryR (rw : GenRewrite<'ans, 'st, 'env>) : GenRewrite<'ans, 'st, 'env> = 
-        rw <+ idR ()
+
+    let ifM (condition : TraversalM<bool, 'ctx, 'st, 'src>) 
+             (successCase : TraversalM<'a, 'ctx, 'st, 'src>) 
+             (elseCase : TraversalM<'a, 'ctx, 'st, 'src>) : TraversalM<'a, 'ctx, 'st, 'src> = 
+        condition >>= fun ans->
+        if ans then successCase else elseCase
 
         
-    let ( >>> ) (t1 : GenTransform<'ans1, 'st, 'env, 'src>) 
-                (t2 : GenTransform<'ans2, 'st, 'env, 'ans1>) : GenTransform<'ans2, 'st, 'env, 'src> = 
-        TraversalM <| fun ctx st src -> 
-            match apply1 t1 ctx st src with
-            | Error msg -> Error msg
-            | Ok (a1, st1) -> apply1 t2 ctx st1 a1
+

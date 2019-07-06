@@ -7,6 +7,32 @@ module Transform =
     
     open SLTraversals.Internal.TraversalMonad
 
+    
+    type GenTransform<'ans, 'ctx, 'st, 'src> = TraversalM<'ans, 'ctx, 'st, 'src>
+
+    type GenRewrite<'ans, 'ctx, 'st> = GenTransform<'ans, 'ctx, 'st, 'ans>
+
+    let idR () : GenRewrite<'ans, 'st, 'env> = 
+        TraversalM <| fun _ st src -> Ok (src, st)
+
+    let failT () : GenTransform<'ans, 'ctx, 'st, 'src> = 
+        traversalError (StrategyFailure "failT")
+
+    let ( <+ ) (t1 : GenTransform<'ans, 'ctx, 'st, 'src>) 
+               (t2 : GenTransform<'ans, 'ctx, 'st, 'src>) : GenTransform<'ans, 'ctx, 'st, 'src> = 
+        mcatch t1 (fun _ -> t2)
+
+    let tryR (rw : GenRewrite<'ans, 'st, 'env>) : GenRewrite<'ans, 'st, 'env> = 
+        rw <+ idR ()
+
+        
+    let ( >>> ) (t1 : GenTransform<'ans1, 'st, 'env, 'src>) 
+                (t2 : GenTransform<'ans2, 'st, 'env, 'ans1>) : GenTransform<'ans2, 'st, 'env, 'src> = 
+        TraversalM <| fun ctx st src -> 
+            match apply1 t1 ctx st src with
+            | Error msg -> Error msg
+            | Ok (a1, st1) -> apply1 t2 ctx st1 a1
+
 
     let transform (fn : 'ctx -> 'a -> Result<'ans, TraversalError>) 
                     : GenTransform<'ans, 'ctx, 'st, 'a> = 
